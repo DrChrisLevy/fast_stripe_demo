@@ -31,29 +31,32 @@ def before(req, sess):
 
 beforeware = Beforeware(before, skip=[r'/favicon\.ico', r'/static/.*', r'.*\.css', r'.*\.js', '/webhook', '/login/.*', '/request-login'])
 
-app, rt = fast_app(before=beforeware, hdrs=(Link(href="https://cdn.jsdelivr.net/npm/daisyui@5", rel="stylesheet"), Script(src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4")), 
-                   secret_key=os.getenv("FAST_APP_SECRET"), max_age=365*24*3600)
+app, rt = fast_app(before=beforeware, pico=False, hdrs=(
+    Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css", rel="stylesheet"),
+    Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css", rel="stylesheet"),
+    Script(src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"),
+), secret_key=os.getenv("FAST_APP_SECRET"), max_age=365*24*3600, htmlkw={"data-theme": "dracula"})
 
 sapi = StripeApi(os.getenv("STRIPE_SECRET_KEY"))
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 # --- UI COMPONENTS ---
 def card(pid, p, owned=False):
-    lbl, href, cls = ("Enter", f"/view/{pid}", "btn-secondary") if owned else ("Buy", f"/buy/{pid}", "btn-primary")
-    return Div(H2(p['name'], cls="card-title"), P(p['desc']), 
-               Div(P(f"${p['price']/100:.2f}"), A(lbl, href=href, cls=f"btn {cls} w-full"), cls="card-actions justify-end mt-auto"),
-               cls="card bg-base-100 shadow-xl p-6 h-full")
+    lbl, href, btn = ("Enter →", f"/view/{pid}", "btn btn-success") if owned else ("Buy Now", f"/buy/{pid}", "btn btn-primary")
+    return Div(H2(p['name'], cls="card-title"), P(p['desc'], cls="text-base-content/70"), 
+               Div(Span(f"${p['price']/100:.2f}", cls="text-2xl font-bold text-primary"), A(lbl, href=href, cls=btn), cls="card-actions justify-between items-center mt-4"),
+               cls="card bg-base-200 shadow-xl p-6 hover:shadow-2xl transition-all")
 
 # --- ROUTES ---
 @rt("/")
 def get(req):
     uid = req.scope.get("user_id")
     owned = [p['prod_id'] for p in buys.rows_where("user_id = ?", [uid])] if uid else []
-    return Container(
-        H1("Storefront", cls="text-center text-4xl font-bold my-8"),
-        Grid(*[card(pid, p, pid in owned) for pid, p in PRODUCTS.items()]),
-        Hr(cls="my-12"),
-        Div(A("Login", href="/request-login", cls="link") if not uid else A("Logout", href="/logout", cls="link"), cls="text-center")
+    return Div(
+        H1("Storefront", cls="text-4xl font-bold text-center mb-8 text-primary"),
+        Div(*[card(pid, p, pid in owned) for pid, p in PRODUCTS.items()], cls="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"),
+        Div(A("Login", href="/request-login", cls="btn btn-outline btn-sm") if not uid else A("Logout", href="/logout", cls="btn btn-ghost btn-sm"), cls="text-center"),
+        cls="container mx-auto p-8 max-w-4xl"
     )
 
 @rt("/buy/{pid}")
@@ -97,10 +100,11 @@ def get(pid: str, req, sess, session_id: str = None):
         return RedirectResponse("/")
         
     p = PRODUCTS.get(pid, {"name": "Unknown Product"})
-    return Container(
-        A("← Back", href="/", cls="btn btn-ghost mb-4"),
-        H1(f"Viewing: {p['name']}", cls="text-3xl font-bold"),
-        Div("Premium content goes here. Only owners can see this.", cls="p-12 bg-base-200 rounded-xl mt-6 border-2 border-primary/20 shadow-inner")
+    return Div(
+        A("← Back", href="/", cls="btn btn-ghost btn-sm mb-4"),
+        H1(f"Viewing: {p['name']}", cls="text-3xl font-bold mb-4"),
+        Div("Premium content goes here. Only owners can see this.", cls="alert alert-success"),
+        cls="container mx-auto p-8 max-w-4xl"
     )
 
 @rt("/webhook", methods=["POST"])
@@ -134,7 +138,7 @@ def login(email: str = None):
         links.insert(email=email, token=tok, expires=(datetime.now()+timedelta(days=1)).isoformat(), used=False)
         print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
         return P("Link sent! Check your email (or console).")
-    return Container(H2("Login"), Form(Input(name="email", placeholder="Email", type="email"), Button("Send Link"), method="post"))
+    return Div(H2("Login", cls="text-2xl font-bold mb-4"), Form(Input(name="email", placeholder="Email", type="email", cls="input input-bordered w-full max-w-xs"), Button("Send Link", cls="btn btn-primary ml-2"), method="post", cls="flex items-center gap-2"), cls="container mx-auto p-8 max-w-md")
 
 @rt("/logout")
 def get(sess): sess.pop('user_id', None); return RedirectResponse("/")
