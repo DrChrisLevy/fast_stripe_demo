@@ -125,7 +125,7 @@ async def post(req):
 @rt("/login/{token}")
 def get(token: str, sess):
     l = next(links.rows_where("token = ? AND used = 0", [token]), None)
-    if not l or datetime.now() > datetime.fromisoformat(l['expires']): return "Link Expired."
+    if not l or datetime.now() > datetime.fromisoformat(l['expires']): return Div(Div("Link Expired.", cls="alert alert-error"), A("← Back", href="/", cls="btn btn-ghost btn-sm mt-4"), cls="container mx-auto p-8 max-w-md text-center")
     links.update({'id': l['id'], 'used': True})
     u = next(users.rows_where("email = ?", [l['email']]))
     sess['user_id'] = u['id']
@@ -137,7 +137,7 @@ def login(email: str = None):
         tok = secrets.token_urlsafe(32)
         links.insert(email=email, token=tok, expires=(datetime.now()+timedelta(days=1)).isoformat(), used=False)
         print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
-        return P("Link sent! Check your email (or console).")
+        return Div(Div("Link sent! Check your email (or console).", cls="alert alert-info"), A("← Back", href="/", cls="btn btn-ghost btn-sm mt-4"), cls="container mx-auto p-8 max-w-md text-center")
     return Div(H2("Login", cls="text-2xl font-bold mb-4"), Form(Input(name="email", placeholder="Email", type="email", cls="input input-bordered w-full max-w-xs"), Button("Send Link", cls="btn btn-primary ml-2"), method="post", cls="flex items-center gap-2"), cls="container mx-auto p-8 max-w-md")
 
 @rt("/logout")
