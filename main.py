@@ -55,7 +55,7 @@ def get(req):
     return Div(
         H1("Storefront", cls="text-4xl font-bold text-center mb-8 text-primary"),
         Div(*[card(pid, p, pid in owned) for pid, p in PRODUCTS.items()], cls="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"),
-        Div(A("Login", href="/request-login", cls="btn btn-outline btn-sm") if not uid else A("Logout", href="/logout", cls="btn btn-ghost btn-sm"), cls="text-center"),
+        Div(A("Login", href="/request-login", cls="btn btn-outline") if not uid else A("Logout", href="/logout", cls="btn btn-ghost"), cls="text-center"),
         cls="container mx-auto p-8 max-w-4xl"
     )
 
