@@ -1,0 +1,15 @@
+#!/bin/bash
+
+case "$1" in
+    lint)
+        uv run ruff check main.py --fix
+        uv run ruff format main.py
+        ;;
+    *)
+        echo "Usage: ./dh <command>"
+        echo ""
+        echo "Commands:"
+        echo "  lint    Run ruff check --fix and format on main.py"
+        ;;
+esac
+
