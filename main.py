@@ -35,7 +35,7 @@ app, rt = fast_app(before=beforeware, pico=False, hdrs=(
     Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css", rel="stylesheet"),
     Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css", rel="stylesheet"),
     Script(src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"),
-), secret_key=os.getenv("FAST_APP_SECRET"), max_age=365*24*3600, htmlkw={"data-theme": "dracula"})
+), secret_key=os.getenv("FAST_APP_SECRET"), max_age=365*24*3600, htmlkw={"data-theme": "light"})
 
 sapi = StripeApi(os.getenv("STRIPE_SECRET_KEY"))
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
