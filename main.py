@@ -187,6 +187,7 @@ def request_login(email: str = None):
         Form(
             Input(name="email", placeholder="Email", type="email", cls="input input-bordered w-full max-w-xs"),
             Button("Send Link", cls="btn btn-primary ml-2"),
+            method="post",
             cls="flex items-center gap-2",
         ),
         P(msg[0], cls=msg[1]) if msg else None,
