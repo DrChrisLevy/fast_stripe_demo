@@ -93,6 +93,8 @@ BASE_URL=http://0.0.0.0:5001        # Your app's public URL
 STRIPE_SECRET_KEY=sk_test_...       # Stripe secret key
 STRIPE_WEBHOOK_SECRET=whsec_...     # Webhook signing secret
 FAST_APP_SECRET=your-secret-here    # Session encryption key
+RESEND_API_KEY=re_...               # Resend API key for emails
+EMAIL_FROM=login@yourdomain.com     # Verified sender address
 ```
 
 ### Product Catalog
@@ -676,7 +678,7 @@ def magic_login(token: str, sess):
 
 ### Areas to Consider
 
-1. **Magic Links in Console** - Currently printed to console. In production, send via email.
+1. **Email Delivery** - Magic links are sent via Resend. Ensure your domain is verified and API key is set.
 
 2. **Error Handling** - The webhook logs errors to console but in production you may want more robust logging:
    ```python
@@ -699,6 +701,31 @@ BASE_URL=https://yourdomain.com
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 FAST_APP_SECRET=a-long-random-string
+RESEND_API_KEY=re_...
+EMAIL_FROM=login@yourdomain.com
+```
+
+### Email Setup (Resend)
+
+Magic login links are sent via [Resend](https://resend.com):
+
+1. Sign up at resend.com and get your API key
+2. Add your domain in Resend → Domains → Add Domain
+3. Add the DNS records Resend provides to your registrar (Cloudflare, etc.)
+4. Set `RESEND_API_KEY` and `EMAIL_FROM` in your env
+
+```python
+# How emails are sent (main.py)
+import resend
+resend.api_key = os.getenv("RESEND_API_KEY")
+
+def send_login_email(to, token):
+    resend.Emails.send({
+        "from": os.getenv("EMAIL_FROM"),
+        "to": to,
+        "subject": "Your login link",
+        "text": f"Click to login: {BASE_URL}/login/{token}"
+    })
 ```
 
 ### Testing Locally with Stripe CLI
