@@ -8,6 +8,7 @@ dependencies = [
     "faststripe>=2025.11.17.4",
     "python-dotenv>=1.2.1",
     "python-fasthtml>=0.12.36",
+    "resend>=2.19.0",
     "stripe>=14.1.0",
 ]
 
