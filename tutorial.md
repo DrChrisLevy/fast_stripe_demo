@@ -153,7 +153,7 @@ if buys not in db.t:
 ```python
 def before(req, sess):
     print(f"DEBUG: Before middleware - Session: {sess}")
-    req.scope['user_id'] = sess.get('user_id')
+    req.scope["user_id"] = sess.get("user_id")
 ```
 
 This runs **before every request**. It:
@@ -211,14 +211,14 @@ Users are **only created when they purchase something**. There's no separate "si
 
 A user record is created in **two places** (whichever runs first):
 
-**1. The Webhook Handler** (`main.py:117`):
+**1. The Webhook Handler** (`main.py:148`):
 ```python
 u = next(users.rows_where("email = ?", [s.customer_details.email]), None) \
     or users.insert(email=s.customer_details.email)
 #        ↑ Creates user if they don't exist
 ```
 
-**2. The Redirect Handler** (`main.py:89`):
+**2. The Redirect Handler** (`main.py:119`):
 ```python
 u = next(users.rows_where("email = ?", [email]), None) \
     or users.insert(email=email)
@@ -231,14 +231,14 @@ Both use the same pattern: "get existing user OR create new one". This is safe b
 
 The session cookie gets the `user_id` (logging the user in) in **two places**:
 
-**1. Auto-login after purchase** (`main.py:93`):
+**1. Auto-login after purchase** (`main.py:123`):
 ```python
-sess['user_id'] = u['id']  # Right after Stripe redirect
+sess["user_id"] = u["id"]  # Right after Stripe redirect
 ```
 
-**2. Magic link login** (`main.py:131`):
+**2. Magic link login** (`main.py:170`):
 ```python
-sess['user_id'] = u['id']  # When clicking login link
+sess["user_id"] = u["id"]  # When clicking login link
 ```
 
 ### The Complete User Lifecycle
@@ -290,10 +290,10 @@ Completes Stripe payment (enters email on Stripe's form)
 
 ### Why Can't Users "Sign Up" Without Buying?
 
-The `/request-login` route (`main.py:136`) explicitly checks if the user **already exists**:
+The `/request-login` route (`main.py:174`) explicitly checks if the user **already exists**:
 
 ```python
-if email and (u := next(users.rows_where("email = ?", [email]), None)):
+if email and next(users.rows_where("email = ?", [email]), None):
     # Only creates magic link if user exists
     tok = secrets.token_urlsafe(32)
     links.insert(...)
@@ -308,18 +308,18 @@ Don't confuse these:
 | Name | What It Is | Where It Lives |
 |------|-----------|----------------|
 | `u['id']` | Database primary key | `users` table |
-| `sess['user_id']` | Session variable | Encrypted cookie |
+| `sess["user_id"]` | Session variable | Encrypted cookie |
 
-The flow is: Database `id` → copied into → Session `user_id` → read by → Beforeware → attached to → `req.scope['user_id']`
+The flow is: Database `id` → copied into → Session `user_id` → read by → Beforeware → attached to → `req.scope["user_id"]`
 
 ```python
 # Beforeware reads from session, attaches to request
 def before(req, sess):
-    req.scope['user_id'] = sess.get('user_id')
+    req.scope["user_id"] = sess.get("user_id")
 
 # Routes read from request scope
 @rt("/")
-def get(req):
+def home(req):
     uid = req.scope.get("user_id")  # This is the database ID
 ```
 
@@ -342,16 +342,16 @@ Two clients are initialized:
 
 ```python
 @rt("/buy/{pid}")
-def get(pid: str, req):
+def buy(pid: str, req):
     uid = req.scope.get("user_id")
-    email = next((u['email'] for u in users.rows_where("id = ?", [uid])), None) if uid else None
+    email = next((u["email"] for u in users.rows_where("id = ?", [uid])), None) if uid else None
 
     p = PRODUCTS[pid]
     kwargs = {"customer_email": email} if email else {}
 
     chk = sapi.one_time_payment(
-        p['name'],                                              # Product name
-        p['price'],                                             # Price in cents
+        p["name"],                                              # Product name
+        p["price"],                                             # Price in cents
         f"{BASE_URL}/view/{pid}?session_id={{CHECKOUT_SESSION_ID}}",  # Success URL
         f"{BASE_URL}/",                                         # Cancel URL
         currency="cad",                                         # Currency
@@ -376,8 +376,8 @@ This uses a technique called **URL template variables** (or placeholder substitu
 **The 3-step flow:**
 
 ```
-STEP 1 - YOUR CODE (line 70-71):
-─────────────────────────────────
+STEP 1 - YOUR CODE (line 100):
+──────────────────────────────
 f"{BASE_URL}/view/{pid}?session_id={{CHECKOUT_SESSION_ID}}"
                                    ↑↑                    ↑↑
                           Double braces in f-string = single literal braces
@@ -401,7 +401,7 @@ STEP 3 - WHAT STRIPE SENDS TO USER'S BROWSER (after payment):
 
 ```python
 @rt("/webhook", methods=["POST"])
-async def post(req):
+async def stripe_webhook(req):
     try:
         # Step 1: Verify the webhook is from Stripe
         ev = stripe.Webhook.construct_event(
@@ -422,7 +422,7 @@ async def post(req):
 
                 # Record purchase
                 buys.insert(
-                    user_id=u['id'],
+                    user_id=u["id"],
                     prod_id=s.metadata.pid,   # From your metadata!
                     sess_id=s.id,             # Stripe session ID
                     amt=s.amount_total        # Amount paid
@@ -433,12 +433,13 @@ async def post(req):
                 links.insert(
                     email=s.customer_details.email,
                     token=token,
-                    expires=(datetime.now()+timedelta(days=1)).isoformat(),
+                    expires=(datetime.now() + timedelta(days=1)).isoformat(),
                     used=False
                 )
                 print(f"DEBUG: Login Link: {BASE_URL}/login/{token}")
 
-    except:
+    except Exception as e:
+        print(f"DEBUG: Webhook error: {e}")
         return Response(status_code=400)  # Tell Stripe something went wrong
 
     return Response(status_code=200)  # Success
@@ -446,19 +447,19 @@ async def post(req):
 
 **Critical Concepts:**
 
-1. **Webhook Verification** (Line 113):
+1. **Webhook Verification** (Line 144):
    ```python
    stripe.Webhook.construct_event(body, signature, secret)
    ```
    This cryptographically verifies the request came from Stripe. Without this, anyone could fake purchase events!
 
-2. **Idempotency Check** (Line 116):
+2. **Idempotency Check** (Line 147):
    ```python
    if not next(buys.rows_where("sess_id = ?", [s.id]), None):
    ```
    Webhooks can be delivered multiple times. This check ensures you only process each payment once by checking if `sess_id` already exists.
 
-3. **Metadata Retrieval** (Line 118):
+3. **Metadata Retrieval** (Line 149):
    ```python
    prod_id=s.metadata.pid
    ```
@@ -482,7 +483,7 @@ async def post(req):
 
 ```python
 @rt("/view/{pid}")
-def get(pid: str, req, sess, session_id: str = None):
+def view(pid: str, req, sess, session_id: str = None):
     uid = req.scope.get("user_id")
 
     # Auto-login if returning from Stripe
@@ -490,7 +491,7 @@ def get(pid: str, req, sess, session_id: str = None):
         try:
             s = stripe.checkout.Session.retrieve(session_id)
 
-            if s.payment_status == 'paid' and s.metadata.get('pid') == pid:
+            if s.payment_status == "paid" and s.metadata.get("pid") == pid:
                 email = s.customer_details.email
 
                 # Get or create user
@@ -500,18 +501,18 @@ def get(pid: str, req, sess, session_id: str = None):
                 # Idempotent purchase (in case webhook hasn't fired yet)
                 if not next(buys.rows_where("sess_id = ?", [s.id]), None):
                     buys.insert(
-                        user_id=u['id'],
+                        user_id=u["id"],
                         prod_id=pid,
                         sess_id=s.id,
                         amt=s.amount_total
                     )
 
                 # Log the user in
-                sess['user_id'] = u['id']
-                uid = u['id']
+                sess["user_id"] = u["id"]
+                uid = u["id"]
 
         except Exception as e:
-            print(f"DEBUG: Auto-login failed: {e}")
+            print(f"DEBUG: Auto-login failed for session {session_id}: {e}")
 ```
 
 **Why This Exists:**
@@ -538,11 +539,11 @@ The redirect often happens **before** the webhook arrives. This code handles tha
 
 ```python
 @rt("/")
-def get(req):
+def home(req):
     uid = req.scope.get("user_id")
 
     # Get list of product IDs the user owns
-    owned = [p['prod_id'] for p in buys.rows_where("user_id = ?", [uid])] if uid else []
+    owned = [p["prod_id"] for p in buys.rows_where("user_id = ?", [uid])] if uid else []
 
     return Div(
         H1("Storefront", cls="..."),
@@ -563,8 +564,7 @@ The `card()` function changes based on ownership:
 
 ```python
 def card(pid, p, owned=False):
-    lbl, href, btn = ("Enter →", f"/view/{pid}", "btn btn-success") if owned \
-                else ("Buy Now", f"/buy/{pid}", "btn btn-primary")
+    lbl, href, btn = ("Enter →", f"/view/{pid}", "btn btn-success") if owned else ("Buy Now", f"/buy/{pid}", "btn btn-primary")
     # ... renders card with appropriate button
 ```
 
@@ -573,13 +573,13 @@ def card(pid, p, owned=False):
 **Request a Link:**
 ```python
 @rt("/request-login", methods=["GET", "POST"])
-def login(email: str = None):
-    if email and (u := next(users.rows_where("email = ?", [email]), None)):
+def request_login(email: str = None):
+    if email and next(users.rows_where("email = ?", [email]), None):
         tok = secrets.token_urlsafe(32)  # 32 bytes = 43 characters
         links.insert(
             email=email,
             token=tok,
-            expires=(datetime.now()+timedelta(days=1)).isoformat(),
+            expires=(datetime.now() + timedelta(days=1)).isoformat(),
             used=False
         )
         print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
@@ -590,20 +590,20 @@ def login(email: str = None):
 **Use the Link:**
 ```python
 @rt("/login/{token}")
-def get(token: str, sess):
+def magic_login(token: str, sess):
     # Find valid, unused link
-    l = next(links.rows_where("token = ? AND used = 0", [token]), None)
+    link = next(links.rows_where("token = ? AND used = 0", [token]), None)
 
     # Check expiration
-    if not l or datetime.now() > datetime.fromisoformat(l['expires']):
+    if not link or datetime.now() > datetime.fromisoformat(link["expires"]):
         return "Link Expired"
 
     # Mark as used (prevent replay attacks)
-    links.update({'id': l['id'], 'used': True})
+    links.update({"id": link["id"], "used": True})
 
     # Log user in
-    u = next(users.rows_where("email = ?", [l['email']]))
-    sess['user_id'] = u['id']
+    u = next(users.rows_where("email = ?", [link["email"]]))
+    sess["user_id"] = u["id"]
 
     return RedirectResponse("/")
 ```
@@ -656,11 +656,11 @@ def get(token: str, sess):
 
 | Step | What Happens | Code Location |
 |------|--------------|---------------|
-| 1-4 | User clicks buy, redirected to Stripe | `/buy/{pid}` (lines 62-77) |
+| 1-4 | User clicks buy, redirected to Stripe | `/buy/{pid}` (lines 90-106) |
 | 5 | User pays on Stripe's hosted page | Stripe handles this |
-| 6-7 | Webhook records purchase | `/webhook` (lines 110-123) |
+| 6-7 | Webhook records purchase | `/webhook` (lines 141-156) |
 | 8 | Stripe redirects to success URL | Stripe handles this |
-| 9 | Auto-login and show content | `/view/{pid}` (lines 79-108) |
+| 9 | Auto-login and show content | `/view/{pid}` (lines 109-138) |
 
 ---
 
@@ -678,11 +678,11 @@ def get(token: str, sess):
 
 1. **Magic Links in Console** - Currently printed to console. In production, send via email.
 
-2. **Error Handling** - The bare `except:` in webhook silently catches all errors:
+2. **Error Handling** - The webhook logs errors to console but in production you may want more robust logging:
    ```python
-   except: return Response(status_code=400)  # What went wrong?
+   except Exception as e:
+       print(f"DEBUG: Webhook error: {e}")  # Consider proper logging
    ```
-   Consider logging the actual error.
 
 3. **HTTPS Required** - Stripe requires HTTPS in production. The `BASE_URL` should be `https://` in production.
 
