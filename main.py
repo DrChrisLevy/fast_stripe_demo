@@ -7,6 +7,7 @@ import stripe
 import secrets
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import resend
 
 load_dotenv("plash.env")
 
@@ -54,6 +55,11 @@ app, rt = fast_app(
 
 sapi = StripeApi(os.getenv("STRIPE_SECRET_KEY"))
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+resend.api_key = os.getenv("RESEND_API_KEY")
+
+
+def send_login_email(to, token):
+    resend.Emails.send({"from": os.getenv("EMAIL_FROM"), "to": to, "subject": "Your login link", "text": f"Click to login: {BASE_URL}/login/{token}"})
 
 
 # --- UI COMPONENTS ---
@@ -149,7 +155,7 @@ async def stripe_webhook(req):
                 buys.insert(user_id=u["id"], prod_id=s.metadata.pid, sess_id=s.id, amt=s.amount_total)
                 token = secrets.token_urlsafe(32)
                 links.insert(email=s.customer_details.email, token=token, expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
-                print(f"DEBUG: Login Link: {BASE_URL}/login/{token}")
+                send_login_email(s.customer_details.email, token)
     except Exception as e:
         print(f"DEBUG: Webhook error: {e}")
         return Response(status_code=400)
@@ -177,8 +183,8 @@ def request_login(email: str = None):
     if email and next(users.rows_where("email = ?", [email]), None):
         tok = secrets.token_urlsafe(32)
         links.insert(email=email, token=tok, expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
-        print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
-        msg = ("Link sent! Check your email (or console).", "alert alert-info")
+        send_login_email(email, tok)
+        msg = ("Link sent! Check your email.", "alert alert-info")
     elif email:
         msg = ("No account found. Buy something or use an email you've purchased with.", "text-error text-sm")
     return Div(
