@@ -173,23 +173,23 @@ def magic_login(token: str, sess):
 
 @rt("/request-login", methods=["GET", "POST"])
 def request_login(email: str = None):
+    msg = None
     if email and next(users.rows_where("email = ?", [email]), None):
         tok = secrets.token_urlsafe(32)
         links.insert(email=email, token=tok, expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
         print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
-        return Div(
-            Div("Link sent! Check your email (or console).", cls="alert alert-info"),
-            A("← Back", href="/", cls="btn btn-ghost btn-sm mt-4"),
-            cls="container mx-auto p-8 max-w-md text-center",
-        )
+        msg = ("Link sent! Check your email (or console).", "alert alert-info")
+    elif email:
+        msg = ("No account found. Buy something or use an email you've purchased with.", "text-error text-sm")
     return Div(
+        A("← Back", href="/", cls="btn btn-ghost btn-sm mb-4"),
         H2("Login", cls="text-2xl font-bold mb-4"),
         Form(
             Input(name="email", placeholder="Email", type="email", cls="input input-bordered w-full max-w-xs"),
             Button("Send Link", cls="btn btn-primary ml-2"),
-            method="post",
             cls="flex items-center gap-2",
         ),
+        P(msg[0], cls=msg[1]) if msg else None,
         cls="container mx-auto p-8 max-w-md",
     )
 
