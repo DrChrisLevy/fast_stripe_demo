@@ -15,5 +15,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipython>=9.8.0",
+    "plash-cli>=0.3.10",
     "ruff>=0.14.10",
 ]
