@@ -73,7 +73,7 @@ def card(pid, p, owned=False):
 
 # --- ROUTES ---
 @rt("/")
-def get(req):
+def home(req):
     uid = req.scope.get("user_id")
     owned = [p["prod_id"] for p in buys.rows_where("user_id = ?", [uid])] if uid else []
     return Div(
@@ -88,7 +88,7 @@ def get(req):
 
 
 @rt("/buy/{pid}")
-def get(pid: str, req):
+def buy(pid: str, req):
     uid = req.scope.get("user_id")
     email = next((u["email"] for u in users.rows_where("id = ?", [uid])), None) if uid else None
 
@@ -107,7 +107,7 @@ def get(pid: str, req):
 
 
 @rt("/view/{pid}")
-def get(pid: str, req, sess, session_id: str = None):
+def view(pid: str, req, sess, session_id: str = None):
     uid = req.scope.get("user_id")
 
     # Auto-login if returning from a successful Stripe purchase
@@ -139,7 +139,7 @@ def get(pid: str, req, sess, session_id: str = None):
 
 
 @rt("/webhook", methods=["POST"])
-async def post(req):
+async def stripe_webhook(req):
     try:
         ev = stripe.Webhook.construct_event(await req.body(), req.headers.get("stripe-signature"), os.getenv("STRIPE_WEBHOOK_SECRET"))
         if ev.type == "checkout.session.completed":
@@ -150,29 +150,30 @@ async def post(req):
                 token = secrets.token_urlsafe(32)
                 links.insert(email=s.customer_details.email, token=token, expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
                 print(f"DEBUG: Login Link: {BASE_URL}/login/{token}")
-    except:
+    except Exception as e:
+        print(f"DEBUG: Webhook error: {e}")
         return Response(status_code=400)
     return Response(status_code=200)
 
 
 @rt("/login/{token}")
-def get(token: str, sess):
-    l = next(links.rows_where("token = ? AND used = 0", [token]), None)
-    if not l or datetime.now() > datetime.fromisoformat(l["expires"]):
+def magic_login(token: str, sess):
+    link = next(links.rows_where("token = ? AND used = 0", [token]), None)
+    if not link or datetime.now() > datetime.fromisoformat(link["expires"]):
         return Div(
             Div("Link Expired.", cls="alert alert-error"),
             A("← Back", href="/", cls="btn btn-ghost btn-sm mt-4"),
             cls="container mx-auto p-8 max-w-md text-center",
         )
-    links.update({"id": l["id"], "used": True})
-    u = next(users.rows_where("email = ?", [l["email"]]))
+    links.update({"id": link["id"], "used": True})
+    u = next(users.rows_where("email = ?", [link["email"]]))
     sess["user_id"] = u["id"]
     return RedirectResponse("/")
 
 
 @rt("/request-login", methods=["GET", "POST"])
-def login(email: str = None):
-    if email and (u := next(users.rows_where("email = ?", [email]), None)):
+def request_login(email: str = None):
+    if email and next(users.rows_where("email = ?", [email]), None):
         tok = secrets.token_urlsafe(32)
         links.insert(email=email, token=tok, expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
         print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
@@ -194,7 +195,7 @@ def login(email: str = None):
 
 
 @rt("/logout")
-def get(sess):
+def logout(sess):
     sess.pop("user_id", None)
     return RedirectResponse("/")
 
