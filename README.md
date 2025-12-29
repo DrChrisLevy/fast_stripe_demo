@@ -3,7 +3,7 @@
 ## Environment Files
 
 - **`.env`** — Local development (not committed to git)
-- **`plash.env`** — Production deployment on Plash (not committed to git)
+- **`plash.env`** — Production deployment on [Plash](https://pla.sh/) (not committed to git)
 
 ## Setup (Local Dev)
 
