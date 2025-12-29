@@ -1,35 +1,17 @@
 # FastHTML + Stripe Integration Tutorial
 
-A comprehensive guide to understanding this passwordless e-commerce application built with FastHTML, FastLite, and Stripe.
-
----
-
-## Table of Contents
-
-1. [Architecture Overview](#architecture-overview)
-2. [Dependencies & Imports](#dependencies--imports)
-3. [Configuration & Database Setup](#configuration--database-setup)
-4. [Authentication System](#authentication-system)
-5. [User Creation & Session Management](#user-creation--session-management)
-6. [Stripe Integration Deep Dive](#stripe-integration-deep-dive)
-7. [Routes Explained](#routes-explained)
-8. [The Complete Purchase Flow](#the-complete-purchase-flow)
-9. [Security Considerations](#security-considerations)
-
----
+A guide to understanding this passwordless e-commerce application built with FastHTML, FastLite, and Stripe.
 
 ## Architecture Overview
 
-This application is a **passwordless e-commerce storefront** with three main components:
-
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        User Browser                              │
+│                        User Browser                             │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     FastHTML Application                         │
+│                     FastHTML Application                        │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │ Beforeware  │  │   Routes    │  │    Stripe Integration   │  │
 │  │ (Auth Gate) │  │ (Handlers)  │  │  (Payments & Webhooks)  │  │
@@ -49,90 +31,23 @@ This application is a **passwordless e-commerce storefront** with three main com
 - **Session-Based State**: User identity stored in encrypted session cookies
 - **Idempotent Purchases**: Purchases are recorded safely even if webhooks/redirects race
 
----
-
-## Dependencies & Imports
-
-```python
-# ruff: noqa: F403, F405
-from fasthtml.common import *          # FastHTML framework (star import)
-from fastlite import database          # Lightweight SQLite ORM
-from faststripe.core import StripeApi  # Stripe helper library
-import os, stripe, secrets             # Standard lib + Stripe SDK
-from dotenv import load_dotenv         # Environment variable loading
-from datetime import datetime, timedelta
-```
-
-### What Each Library Does:
+## Dependencies
 
 | Library | Purpose |
 |---------|---------|
-| `fasthtml` | Web framework (like Flask/FastAPI but simpler) |
+| `fasthtml` | Web framework |
 | `fastlite` | SQLite database with dict-like access |
 | `faststripe` | Wrapper around Stripe for common operations |
 | `stripe` | Official Stripe Python SDK |
+| `resend` | Email delivery for magic links |
 | `secrets` | Cryptographically secure token generation |
-| `dotenv` | Load `.env` files into environment |
 
-The `# ruff: noqa: F403, F405` comment tells the linter to ignore warnings about star imports.
-
----
-
-## Configuration & Database Setup
-
-### Environment Variables
-
-```python
-load_dotenv("plash.env")
-```
-
-This loads your `plash.env` file. You need these variables:
-
-```env
-BASE_URL=http://0.0.0.0:5001        # Your app's public URL
-STRIPE_SECRET_KEY=sk_test_...       # Stripe secret key
-STRIPE_WEBHOOK_SECRET=whsec_...     # Webhook signing secret
-FAST_APP_SECRET=your-secret-here    # Session encryption key
-RESEND_API_KEY=re_...               # Resend API key for emails
-EMAIL_FROM=login@yourdomain.com     # Verified sender address
-```
-
-### Product Catalog
-
-```python
-PRODUCTS = {
-    "p1": {"name": "Product 1", "price": 1999, "desc": "Generic description for product 1"},
-    "p2": {"name": "Product 2", "price": 2999, "desc": "Generic description for product 2"},
-}
-```
-
-**Important**: Prices are in **cents** (1999 = $19.99). This is Stripe's convention to avoid floating-point issues.
-
-### Database Schema
+## Database Schema
 
 ```python
 db = database(DB_NAME)
 users, links, buys = db.t.users, db.t.magic_links, db.t.purchases
 ```
-
-`db.t.tablename` is FastLite's way of accessing tables. The tables are created if they don't exist:
-
-```python
-# Users table - stores registered users
-if users not in db.t:
-    users.create(id=int, email=str, pk="id")
-    users.create_index(["email"], unique=True)  # Prevent duplicate emails
-
-# Magic links table - for passwordless login
-if links not in db.t:
-    links.create(id=int, email=str, token=str, expires=str, used=bool, pk="id")
-
-# Purchases table - records of completed purchases
-if buys not in db.t:
-    buys.create(id=int, user_id=int, prod_id=str, sess_id=str, amt=int, pk="id")
-```
-
-**Schema Diagram:**
 
 ```
 ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -146,479 +61,216 @@ if buys not in db.t:
                                               └──────────────────┘
 ```
 
----
+- **users**: Created only when someone purchases (no separate sign-up)
+- **magic_links**: Tokens for passwordless login, expire after 24 hours, single-use
+- **purchases**: Links users to products, `sess_id` is Stripe's checkout session ID
 
 ## Authentication System
 
-### The Beforeware (Middleware)
+### Beforeware (Middleware)
 
 ```python
 def before(req, sess):
-    print(f"DEBUG: Before middleware - Session: {sess}")
     req.scope["user_id"] = sess.get("user_id")
+
+beforeware = Beforeware(before, skip=[
+    r"/favicon\.ico", r"/static/.*", r".*\.css", r".*\.js",
+    "/webhook",        # Webhooks can't have sessions
+    "/login/.*",       # Login links must work without auth
+    "/request-login"   # Login form must be accessible
+])
 ```
 
-This runs **before every request**. It:
-1. Reads `user_id` from the encrypted session cookie
-2. Attaches it to `req.scope` for easy access in route handlers
-
-```python
-beforeware = Beforeware(
-    before,
-    skip=[
-        r'/favicon\.ico',
-        r'/static/.*',
-        r'.*\.css',
-        r'.*\.js',
-        '/webhook',           # Webhooks can't have sessions
-        '/login/.*',          # Login links must work without auth
-        '/request-login'      # Login form must be accessible
-    ]
-)
-```
-
-The `skip` list defines routes that bypass the middleware. Regex patterns are supported.
+This runs before every request, reading `user_id` from the encrypted session cookie and attaching it to `req.scope` for route handlers.
 
 ### App Initialization
 
 ```python
 app, rt = fast_app(
     before=beforeware,
-    pico=False,                    # Don't use PicoCSS
-    hdrs=(                         # Custom CSS/JS headers
-        Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css", rel="stylesheet"),
-        Link(href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css", rel="stylesheet"),
-        Script(src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"),
-    ),
-    secret_key=os.getenv("FAST_APP_SECRET"),  # Session encryption
+    secret_key=os.getenv("FAST_APP_SECRET"),  # Encrypts session cookie
     max_age=365*24*3600,                       # Cookie lasts 1 year
-    htmlkw={"data-theme": "light"}             # DaisyUI theme
+    ...
 )
 ```
 
-**Key Points:**
-- `secret_key` encrypts the session cookie (users can't tamper with it)
-- `max_age` keeps users logged in for a year
-- `rt` is the route decorator (shorthand for `app.route`)
+The `secret_key` cryptographically signs the cookie so users can't tamper with it.
 
 ---
 
-## User Creation & Session Management
+## Stripe Integration
 
-Understanding **when** users are created and **when** they get logged in is crucial to understanding this app.
-
-### When is a User Record Created?
-
-Users are **only created when they purchase something**. There's no separate "sign up" flow.
-
-A user record is created in **two places** (whichever runs first):
-
-**1. The Webhook Handler** (`main.py:148`):
-```python
-u = next(users.rows_where("email = ?", [s.customer_details.email]), None) \
-    or users.insert(email=s.customer_details.email)
-#        ↑ Creates user if they don't exist
-```
-
-**2. The Redirect Handler** (`main.py:119`):
-```python
-u = next(users.rows_where("email = ?", [email]), None) \
-    or users.insert(email=email)
-#        ↑ Creates user if they don't exist
-```
-
-Both use the same pattern: "get existing user OR create new one". This is safe because of the unique email index on the users table.
-
-### When is the Session `user_id` Set?
-
-The session cookie gets the `user_id` (logging the user in) in **two places**:
-
-**1. Auto-login after purchase** (`main.py:123`):
-```python
-sess["user_id"] = u["id"]  # Right after Stripe redirect
-```
-
-**2. Magic link login** (`main.py:170`):
-```python
-sess["user_id"] = u["id"]  # When clicking login link
-```
-
-### The Complete User Lifecycle
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         USER LIFECYCLE DIAGRAM                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-Guest visits site (no user record, no session)
-        │
-        ▼
-Clicks "Buy Now" ──► Redirected to Stripe
-        │
-        ▼
-Completes Stripe payment (enters email on Stripe's form)
-        │
-        │
-        ├───────────────────────────────────┐
-        │                                   │
-        ▼                                   ▼
-   /view/{pid} redirect              /webhook POST
-   (usually runs first)              (runs async from Stripe)
-        │                                   │
-        ▼                                   ▼
-   ┌─────────────────┐              ┌─────────────────┐
-   │ User exists?    │              │ User exists?    │
-   │   NO → Create   │              │   NO → Create   │
-   │   YES → Fetch   │              │   YES → Fetch   │
-   └─────────────────┘              └─────────────────┘
-        │                                   │
-        ▼                                   ▼
-   sess['user_id'] = u['id']        Generate magic link
-   (USER IS NOW LOGGED IN)          (for future logins)
-        │
-        ▼
-   User sees purchased content
-        │
-        ▼
-   ... time passes, session expires or user logs out ...
-        │
-        ▼
-   User clicks magic link from email (or requests new one)
-        │
-        ▼
-   /login/{token} ──► sess['user_id'] = u['id']
-   (USER IS LOGGED IN AGAIN)
-```
-
-### Why Can't Users "Sign Up" Without Buying?
-
-The `/request-login` route (`main.py:174`) explicitly checks if the user **already exists**:
+### The Two Stripe Clients
 
 ```python
-if email and next(users.rows_where("email = ?", [email]), None):
-    # Only creates magic link if user exists
-    tok = secrets.token_urlsafe(32)
-    links.insert(...)
+sapi = StripeApi(os.getenv("STRIPE_SECRET_KEY"))  # FastStripe - for creating checkouts
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")   # Official SDK - for webhooks & session retrieval
 ```
 
-If the email isn't in the database, nothing happens. This is intentional - it's a **purchase-gated** system where the only way to become a user is to buy something.
+We use FastStripe's `one_time_payment()` for simple checkout creation, but the official SDK for webhook signature verification and retrieving session details.
 
-### The Two Types of `user_id`
-
-Don't confuse these:
-
-| Name | What It Is | Where It Lives |
-|------|-----------|----------------|
-| `u['id']` | Database primary key | `users` table |
-| `sess["user_id"]` | Session variable | Encrypted cookie |
-
-The flow is: Database `id` → copied into → Session `user_id` → read by → Beforeware → attached to → `req.scope["user_id"]`
-
-```python
-# Beforeware reads from session, attaches to request
-def before(req, sess):
-    req.scope["user_id"] = sess.get("user_id")
-
-# Routes read from request scope
-@rt("/")
-def home(req):
-    uid = req.scope.get("user_id")  # This is the database ID
-```
-
----
-
-## Stripe Integration Deep Dive
-
-### Stripe Client Setup
-
-```python
-sapi = StripeApi(os.getenv("STRIPE_SECRET_KEY"))  # faststripe helper
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")   # official SDK
-```
-
-Two clients are initialized:
-1. `sapi` - The `faststripe` wrapper for simplified checkout creation
-2. `stripe` - The official SDK for webhooks and session retrieval
-
-### Creating a Checkout Session
+### Creating a Checkout Session (`/buy/{pid}`)
 
 ```python
 @rt("/buy/{pid}")
 def buy(pid: str, req):
-    uid = req.scope.get("user_id")
-    email = next((u["email"] for u in users.rows_where("id = ?", [uid])), None) if uid else None
-
     p = PRODUCTS[pid]
-    kwargs = {"customer_email": email} if email else {}
-
     chk = sapi.one_time_payment(
-        p["name"],                                              # Product name
-        p["price"],                                             # Price in cents
+        p["name"],
+        p["price"],
         f"{BASE_URL}/view/{pid}?session_id={{CHECKOUT_SESSION_ID}}",  # Success URL
-        f"{BASE_URL}/",                                         # Cancel URL
-        currency="cad",                                         # Currency
-        metadata={"pid": pid},                                  # Custom data
-        **kwargs                                                # Optional email
+        f"{BASE_URL}/",  # Cancel URL
+        currency="cad",
+        metadata={"pid": pid},  # Retrieved later in webhook
     )
     return RedirectResponse(chk.url)
 ```
 
-**Breakdown:**
+**Key details:**
+- `metadata={"pid": pid}` - Stores the product ID so we can retrieve it in the webhook and verify it on redirect.
+- Prices are in **cents** (1999 = $19.99) - Stripe's convention to avoid floating-point issues.
 
-1. **Get user email if logged in** - Pre-fills checkout form
-2. **Build checkout parameters**:
-   - `success_url` includes `{CHECKOUT_SESSION_ID}` - Stripe replaces this with the actual session ID
-   - `metadata` stores your custom data (product ID) - retrieved later in webhooks
-3. **Redirect to Stripe** - User completes payment on Stripe's hosted page
-
-**The `{CHECKOUT_SESSION_ID}` Template (URL Template Variables):**
-
-This uses a technique called **URL template variables** (or placeholder substitution). You include a placeholder in the URL, and Stripe's server replaces it with the actual value when redirecting the user back to your site.
-
-**The 3-step flow:**
+**The `{CHECKOUT_SESSION_ID}` template variable:**
 
 ```
-STEP 1 - YOUR CODE (line 100):
-──────────────────────────────
+STEP 1 - Your code:
 f"{BASE_URL}/view/{pid}?session_id={{CHECKOUT_SESSION_ID}}"
                                    ↑↑                    ↑↑
-                          Double braces in f-string = single literal braces
+                          Double braces = literal braces in f-string
 
-STEP 2 - WHAT STRIPE RECEIVES:
-──────────────────────────────
-"http://0.0.0.0:5001/view/p1?session_id={CHECKOUT_SESSION_ID}"
-                                        ↑                    ↑
-                              Literal braces with placeholder
+STEP 2 - What Stripe receives:
+"http://localhost:5001/view/p1?session_id={CHECKOUT_SESSION_ID}"
+                                          ↑ literal placeholder ↑
 
-STEP 3 - WHAT STRIPE SENDS TO USER'S BROWSER (after payment):
-─────────────────────────────────────────────────────────────
-"http://0.0.0.0:5001/view/p1?session_id=cs_test_a1b2c3d4e5..."
-                                        ↑───────────────────↑
-                              Stripe replaced it with actual session ID
+STEP 3 - What Stripe sends to browser after payment:
+"http://localhost:5001/view/p1?session_id=cs_test_a1b2c3..."
+                                          ↑ actual session ID ↑
 ```
 
-**Key point:** You never populate this value - **Stripe's server does** during the redirect. The `{CHECKOUT_SESSION_ID}` placeholder is the only template variable Stripe supports for Checkout URLs.
+Stripe's server replaces the placeholder when redirecting - you never populate this value yourself.
 
-### The Webhook Handler
+---
 
-```python
-@rt("/webhook", methods=["POST"])
-async def stripe_webhook(req):
-    try:
-        # Step 1: Verify the webhook is from Stripe
-        ev = stripe.Webhook.construct_event(
-            await req.body(),                              # Raw request body
-            req.headers.get("stripe-signature"),           # Stripe's signature header
-            os.getenv("STRIPE_WEBHOOK_SECRET")             # Your webhook secret
-        )
+## The Race Condition
 
-        # Step 2: Handle checkout completion
-        if ev.type == "checkout.session.completed":
-            s = ev.data.object  # The checkout session object
-
-            # Step 3: Idempotent insert (prevent duplicates)
-            if not next(buys.rows_where("sess_id = ?", [s.id]), None):
-                # Get or create user
-                u = next(users.rows_where("email = ?", [s.customer_details.email]), None) \
-                    or users.insert(email=s.customer_details.email)
-
-                # Record purchase
-                buys.insert(
-                    user_id=u["id"],
-                    prod_id=s.metadata.pid,   # From your metadata!
-                    sess_id=s.id,             # Stripe session ID
-                    amt=s.amount_total        # Amount paid
-                )
-
-                # Generate magic link for login
-                token = secrets.token_urlsafe(32)
-                links.insert(
-                    email=s.customer_details.email,
-                    token=token,
-                    expires=(datetime.now() + timedelta(days=1)).isoformat(),
-                    used=False
-                )
-                print(f"DEBUG: Login Link: {BASE_URL}/login/{token}")
-
-    except Exception as e:
-        print(f"DEBUG: Webhook error: {e}")
-        return Response(status_code=400)  # Tell Stripe something went wrong
-
-    return Response(status_code=200)  # Success
-```
-
-**Critical Concepts:**
-
-1. **Webhook Verification** (Line 144):
-   ```python
-   stripe.Webhook.construct_event(body, signature, secret)
-   ```
-   This cryptographically verifies the request came from Stripe. Without this, anyone could fake purchase events!
-
-2. **Idempotency Check** (Line 147):
-   ```python
-   if not next(buys.rows_where("sess_id = ?", [s.id]), None):
-   ```
-   Webhooks can be delivered multiple times. This check ensures you only process each payment once by checking if `sess_id` already exists.
-
-3. **Metadata Retrieval** (Line 149):
-   ```python
-   prod_id=s.metadata.pid
-   ```
-   The `pid` you passed during checkout is now available in the webhook!
-
-**Webhook Flow Diagram:**
+After successful payment, **two things happen simultaneously**:
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
-│   Stripe    │────►│ Your Server │────►│    Database     │
-│  (Payment)  │     │  /webhook   │     │ (Record Purchase)│
-└─────────────┘     └─────────────┘     └─────────────────┘
-       │                   │
-       │   POST request    │
-       │   with signature  │
-       │                   │
-       │   ◄── 200 OK ─────│
+                    ┌─────────────────────────────────┐
+                    │      User completes payment     │
+                    └─────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+         Browser redirect                    Webhook POST
+         to /view/{pid}?session_id=...       to /webhook
+         (usually arrives FIRST)             (arrives async)
 ```
 
-### Auto-Login After Purchase
+The redirect typically arrives **before** the webhook. Both paths need to handle creating users and recording purchases, because either one might arrive first.
+
+### Path A: The Redirect (`/view/{pid}`)
 
 ```python
 @rt("/view/{pid}")
 def view(pid: str, req, sess, session_id: str = None):
     uid = req.scope.get("user_id")
 
-    # Auto-login if returning from Stripe
+    # Auto-login if returning from Stripe (not logged in, but has session_id)
     if not uid and session_id:
-        try:
-            s = stripe.checkout.Session.retrieve(session_id)
+        s = stripe.checkout.Session.retrieve(session_id)
 
-            if s.payment_status == "paid" and s.metadata.get("pid") == pid:
-                email = s.customer_details.email
+        if s.payment_status == "paid" and s.metadata.get("pid") == pid:
+            email = s.customer_details.email
 
-                # Get or create user
-                u = next(users.rows_where("email = ?", [email]), None) \
-                    or users.insert(email=email)
+            # Get or create user
+            u = next(users.rows_where("email = ?", [email]), None) \
+                or users.insert(email=email)
 
-                # Idempotent purchase (in case webhook hasn't fired yet)
-                if not next(buys.rows_where("sess_id = ?", [s.id]), None):
-                    buys.insert(
-                        user_id=u["id"],
-                        prod_id=pid,
-                        sess_id=s.id,
-                        amt=s.amount_total
-                    )
+            # Record purchase IF not already recorded (idempotent)
+            if not next(buys.rows_where("sess_id = ?", [s.id]), None):
+                buys.insert(user_id=u["id"], prod_id=pid, sess_id=s.id, amt=s.amount_total)
 
-                # Log the user in
-                sess["user_id"] = u["id"]
-                uid = u["id"]
-
-        except Exception as e:
-            print(f"DEBUG: Auto-login failed for session {session_id}: {e}")
+            # Log the user in immediately
+            sess["user_id"] = u["id"]
+            uid = u["id"]
 ```
 
-**Why This Exists:**
+**What this does:**
+1. Retrieves the checkout session directly from Stripe API
+2. Verifies payment succeeded (`payment_status == "paid"`)
+3. Verifies the product matches (`metadata.pid == pid`) - security check
+4. Creates user if they don't exist
+5. Records purchase **only if `sess_id` doesn't exist** (idempotent)
+6. Sets the session cookie → user is logged in immediately
 
-There's a **race condition** between:
-1. Stripe redirecting the user to your success URL
-2. Stripe sending the webhook
-
-The redirect often happens **before** the webhook arrives. This code handles that by:
-1. Retrieving the session directly from Stripe API
-2. Verifying payment was successful
-3. Recording the purchase (if webhook hasn't yet)
-4. Logging the user in immediately
-
-**Security Checks:**
-- `s.payment_status == 'paid'` - Confirms payment succeeded
-- `s.metadata.get('pid') == pid` - Confirms they're accessing the right product
-
----
-
-## Routes Explained
-
-### Home Page (`/`)
+### Path B: The Webhook (`/webhook`)
 
 ```python
-@rt("/")
-def home(req):
-    uid = req.scope.get("user_id")
-
-    # Get list of product IDs the user owns
-    owned = [p["prod_id"] for p in buys.rows_where("user_id = ?", [uid])] if uid else []
-
-    return Div(
-        H1("Storefront", cls="..."),
-        Div(
-            *[card(pid, p, pid in owned) for pid, p in PRODUCTS.items()],
-            cls="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"
-        ),
-        Div(
-            A("Login", href="/request-login", cls="btn btn-outline") if not uid
-            else A("Logout", href="/logout", cls="btn btn-ghost"),
-            cls="text-center"
-        ),
-        cls="container mx-auto p-8 max-w-4xl"
+@rt("/webhook", methods=["POST"])
+async def stripe_webhook(req):
+    # Verify the request is from Stripe (cryptographic signature check)
+    ev = stripe.Webhook.construct_event(
+        await req.body(),
+        req.headers.get("stripe-signature"),
+        os.getenv("STRIPE_WEBHOOK_SECRET")
     )
+
+    if ev.type == "checkout.session.completed":
+        s = ev.data.object
+
+        # Record purchase IF not already recorded (idempotent)
+        if not next(buys.rows_where("sess_id = ?", [s.id]), None):
+            u = next(users.rows_where("email = ?", [s.customer_details.email]), None) \
+                or users.insert(email=s.customer_details.email)
+            buys.insert(user_id=u["id"], prod_id=s.metadata.pid, sess_id=s.id, amt=s.amount_total)
+
+            # Send magic link for future logins
+            token = secrets.token_urlsafe(32)
+            links.insert(email=s.customer_details.email, token=token,
+                        expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
+            send_login_email(s.customer_details.email, token)
+
+    return Response(status_code=200)
 ```
 
-The `card()` function changes based on ownership:
+**What this does:**
+1. Verifies webhook signature (prevents fake payment notifications)
+2. Creates user if they don't exist
+3. Records purchase **only if `sess_id` doesn't exist** (idempotent)
+4. Generates and emails a magic link for future logins
+
+### The Idempotency Check
+
+Both paths use the same pattern before inserting a purchase:
 
 ```python
-def card(pid, p, owned=False):
-    lbl, href, btn = ("Enter →", f"/view/{pid}", "btn btn-success") if owned else ("Buy Now", f"/buy/{pid}", "btn btn-primary")
-    # ... renders card with appropriate button
+if not next(buys.rows_where("sess_id = ?", [s.id]), None):
+    buys.insert(...)
 ```
 
-### Magic Link Login
+This ensures the purchase is only recorded once, regardless of:
+- Which path runs first (redirect vs webhook)
+- If Stripe sends the webhook multiple times (they retry on failure)
 
-**Request a Link:**
-```python
-@rt("/request-login", methods=["GET", "POST"])
-def request_login(email: str = None):
-    if email and next(users.rows_where("email = ?", [email]), None):
-        tok = secrets.token_urlsafe(32)  # 32 bytes = 43 characters
-        links.insert(
-            email=email,
-            token=tok,
-            expires=(datetime.now() + timedelta(days=1)).isoformat(),
-            used=False
-        )
-        print(f"DEBUG: Login Link: {BASE_URL}/login/{tok}")
-        return Div("Link sent!", ...)
-    return Div(Form(...))  # Show email form
-```
+The `sess_id` (Stripe's checkout session ID) is the unique key that makes this safe.
 
-**Use the Link:**
-```python
-@rt("/login/{token}")
-def magic_login(token: str, sess):
-    # Find valid, unused link
-    link = next(links.rows_where("token = ? AND used = 0", [token]), None)
+### Why Both Paths?
 
-    # Check expiration
-    if not link or datetime.now() > datetime.fromisoformat(link["expires"]):
-        return "Link Expired"
+| Path | Purpose | Creates user? | Records purchase? | Logs in? | Sends email? |
+|------|---------|---------------|-------------------|----------|--------------|
+| Redirect | Immediate UX | Yes | Yes | **Yes** | No |
+| Webhook | Reliable record | Yes | Yes | No | **Yes** |
 
-    # Mark as used (prevent replay attacks)
-    links.update({"id": link["id"], "used": True})
-
-    # Log user in
-    u = next(users.rows_where("email = ?", [link["email"]]))
-    sess["user_id"] = u["id"]
-
-    return RedirectResponse("/")
-```
+- **Redirect gives immediate access** - User doesn't wait or check email
+- **Webhook ensures reliability** - If user closes browser, purchase is still recorded
+- **Email provides future access** - User can log back in later via magic link
 
 ---
 
 ## The Complete Purchase Flow
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           PURCHASE FLOW DIAGRAM                               │
-└──────────────────────────────────────────────────────────────────────────────┘
-
      User                    Your App                    Stripe
        │                        │                          │
        │  1. Click "Buy Now"    │                          │
@@ -642,7 +294,7 @@ def magic_login(token: str, sess):
        │                        │◄─────────────────────────│
        │                        │                          │
        │                        │  7. Record purchase,     │
-       │                        │     create magic link    │
+       │                        │     send magic link      │
        │                        │                          │
        │  8. Redirect to        │                          │
        │     success URL        │                          │
@@ -651,93 +303,133 @@ def magic_login(token: str, sess):
        │  9. Auto-login &       │                          │
        │     show content       │                          │
        │◄───────────────────────│                          │
-       │                        │                          │
 ```
 
-**Timeline of Events:**
+---
 
-| Step | What Happens | Code Location |
-|------|--------------|---------------|
-| 1-4 | User clicks buy, redirected to Stripe | `/buy/{pid}` (lines 90-106) |
-| 5 | User pays on Stripe's hosted page | Stripe handles this |
-| 6-7 | Webhook records purchase | `/webhook` (lines 141-156) |
-| 8 | Stripe redirects to success URL | Stripe handles this |
-| 9 | Auto-login and show content | `/view/{pid}` (lines 109-138) |
+## User Lifecycle
+
+```
+Guest visits site (no user record, no session)
+        │
+        ▼
+Clicks "Buy Now" → Redirected to Stripe Checkout
+        │
+        ▼
+Completes payment (enters email on Stripe's form)
+        │
+        ├───────────────────────────────────┐
+        │                                   │
+        ▼                                   ▼
+   /view/{pid} redirect              /webhook POST
+   (usually runs first)              (runs async)
+        │                                   │
+        ▼                                   ▼
+   ┌─────────────────┐              ┌─────────────────┐
+   │ User exists?    │              │ User exists?    │
+   │   NO → Create   │              │   NO → Create   │
+   │   YES → Fetch   │              │   YES → Fetch   │
+   └─────────────────┘              └─────────────────┘
+        │                                   │
+        ▼                                   ▼
+   sess['user_id'] = id             Generate & email
+   (LOGGED IN NOW)                  magic link
+        │
+        ▼
+   User sees purchased content
+        │
+        ▼
+   ... time passes, session expires or user logs out ...
+        │
+        ▼
+   User clicks magic link (or requests new one at /request-login)
+        │
+        ▼
+   /login/{token} → sess['user_id'] = id
+   (LOGGED IN AGAIN)
+```
+
+**Why can't users "sign up" without buying?**
+
+The `/request-login` route only creates magic links for existing users:
+
+```python
+if email and next(users.rows_where("email = ?", [email]), None):
+    # Only sends link if user exists
+```
+
+This is intentional - it's a **purchase-gated** system.
+
+---
+
+## Magic Link Authentication
+
+### Request a new link (`/request-login`)
+
+```python
+@rt("/request-login", methods=["GET", "POST"])
+def request_login(email: str = None):
+    if email and next(users.rows_where("email = ?", [email]), None):
+        tok = secrets.token_urlsafe(32)  # 32 bytes = 43 characters
+        links.insert(email=email, token=tok,
+                    expires=(datetime.now() + timedelta(days=1)).isoformat(), used=False)
+        send_login_email(email, tok)
+```
+
+### Use the link (`/login/{token}`)
+
+```python
+@rt("/login/{token}")
+def magic_login(token: str, sess):
+    link = next(links.rows_where("token = ? AND used = 0", [token]), None)
+
+    if not link or datetime.now() > datetime.fromisoformat(link["expires"]):
+        return "Link Expired"
+
+    links.update({"id": link["id"], "used": True})  # Mark as used
+    u = next(users.rows_where("email = ?", [link["email"]]))
+    sess["user_id"] = u["id"]
+    return RedirectResponse("/")
+```
+
+**Security features:**
+- Token is 32 bytes of cryptographically random data
+- Expires after 24 hours
+- Single use (marked `used=True` after login)
 
 ---
 
 ## Security Considerations
 
-### What's Done Well
+**What's done well:**
+- **Webhook signature verification** - `stripe.Webhook.construct_event()` prevents fake payment notifications
+- **Idempotent purchase recording** - `sess_id` check prevents duplicates
+- **Magic link expiration** - Links expire after 24 hours
+- **Single-use tokens** - Links can't be reused after login
+- **Session encryption** - `secret_key` encrypts cookies so users can't tamper
+- **Payment verification** - Redirect checks `payment_status == "paid"` and `metadata.pid`
 
-1. **Webhook Signature Verification** - Prevents fake payment notifications
-2. **Idempotent Purchase Recording** - Prevents duplicate charges
-3. **Magic Link Expiration** - Links expire after 24 hours
-4. **Single-Use Tokens** - Links can't be reused after login
-5. **Session Encryption** - `secret_key` encrypts cookies
-
-### Areas to Consider
-
-1. **Email Delivery** - Magic links are sent via Resend. Ensure your domain is verified and API key is set.
-
-2. **Error Handling** - The webhook logs errors to console but in production you may want more robust logging:
-   ```python
-   except Exception as e:
-       print(f"DEBUG: Webhook error: {e}")  # Consider proper logging
-   ```
-
-3. **HTTPS Required** - Stripe requires HTTPS in production. The `BASE_URL` should be `https://` in production.
-
-4. **Rate Limiting** - The `/request-login` endpoint could be abused. Consider adding rate limiting.
+**Things to consider for production:**
+- Use HTTPS (Stripe requires it)
+- Add rate limiting to `/request-login` to prevent abuse
+- Consider proper logging instead of `print()` statements
 
 ---
 
 ## Quick Reference
 
-### Environment Variables Needed
+### Environment Variables
 
 ```env
-BASE_URL=https://yourdomain.com
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-FAST_APP_SECRET=a-long-random-string
-RESEND_API_KEY=re_...
-EMAIL_FROM=login@yourdomain.com
+STRIPE_SECRET_KEY=sk_test_...       # Stripe secret key
+STRIPE_WEBHOOK_SECRET=whsec_...     # Webhook signing secret
+FAST_APP_SECRET=<random-string>     # Session encryption key
+RESEND_API_KEY=re_...               # Resend API key for emails
+EMAIL_FROM=login@yourdomain.com     # Verified sender address
+BASE_URL=https://yourdomain.com     # Your app's public URL (optional locally)
 ```
 
-### Email Setup (Resend)
-
-Magic login links are sent via [Resend](https://resend.com):
-
-1. Sign up at resend.com and get your API key
-2. Add your domain in Resend → Domains → Add Domain
-3. Add the DNS records Resend provides to your registrar (Cloudflare, etc.)
-4. Set `RESEND_API_KEY` and `EMAIL_FROM` in your env
-
-```python
-# How emails are sent (main.py)
-import resend
-resend.api_key = os.getenv("RESEND_API_KEY")
-
-def send_login_email(to, token):
-    resend.Emails.send({
-        "from": os.getenv("EMAIL_FROM"),
-        "to": to,
-        "subject": "Your login link",
-        "text": f"Click to login: {BASE_URL}/login/{token}"
-    })
-```
-
-### Testing Locally with Stripe CLI
-
-```bash
-# Forward webhooks to your local server
-stripe listen --forward-to localhost:5001/webhook
-
-# The CLI will give you a webhook secret to use
-```
-
-### Stripe Test Card Numbers
+### Stripe Test Cards
 
 | Card Number | Result |
 |-------------|--------|
@@ -747,21 +439,12 @@ stripe listen --forward-to localhost:5001/webhook
 
 Use any future expiry date and any 3-digit CVC.
 
----
+### Testing Webhooks Locally
 
-## Deployment (Plash)
-
-To deploy your application to Plash:
-
-1. Export dependencies (Plash requires a `requirements.txt`):
-   ```bash
-   uv export --no-hashes --no-dev -o requirements.txt
-   ```
-
-2. Deploy:
-   ```bash
-   uv run plash_deploy
-   ```
+```bash
+stripe listen --forward-to localhost:5001/webhook
+# Use the whsec_... it outputs as STRIPE_WEBHOOK_SECRET
+```
 
 ---
 
@@ -774,4 +457,4 @@ This application demonstrates a clean pattern for selling digital products:
 3. **Idempotent operations** - Safe against duplicate webhooks/requests
 4. **Immediate access** - Auto-login after purchase, no waiting for webhooks
 
-The key insight is that both the webhook AND the redirect handler can record purchases, but the `sess_id` check ensures it only happens once. This makes the system resilient to timing issues between Stripe's webhook delivery and user redirects.
+The key insight is that both the redirect AND the webhook can create users and record purchases, but the `sess_id` check ensures it only happens once. This makes the system resilient to timing issues while providing a smooth user experience.
