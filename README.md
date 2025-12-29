@@ -1,11 +1,16 @@
 # Fast Stripe Demo
 
-[FastStripe](https://github.com/AnswerDotAI/faststripe) is a Python library
-that offers several advantages over the official Stripe Python SDK. It was created
-by the team at [Answer.ai](https://answer.ai/). There is a good blog post about
-it [here](https://www.answer.ai/posts/2025-07-23-faststripe.html).
+A **passwordless e-commerce storefront** demo built with [FastHTML](https://fastht.ml/), [FastStripe](https://github.com/AnswerDotAI/faststripe), and [FastLite](https://github.com/AnswerDotAI/fastlite).
 
-I created this demo as a way to learn about using FastStripe and how I could use it within a FastHTML app.
+[FastStripe](https://github.com/AnswerDotAI/faststripe) is a Python library by [Answer.ai](https://answer.ai/) that simplifies Stripe integration. See their [blog post](https://www.answer.ai/posts/2025-07-23-faststripe.html) for details. For a minimal example, check out the [FastHTML e-commerce example](https://github.com/AnswerDotAI/fasthtml-example/tree/main/e_commerce).
+
+**How it works:**
+1. Guest clicks "Buy Now" → redirected to Stripe Checkout
+2. After payment, user record is created and a magic login link is emailed
+3. User is auto-logged in and can access purchased content
+4. Future logins via magic link (no passwords)
+
+See [tutorial.md](tutorial.md) for a detailed code walkthrough.
 
 ## Environment Files
 
@@ -38,14 +43,23 @@ I created this demo as a way to learn about using FastStripe and how I could use
    ```
    For example, can generate `FAST_APP_SECRET` with: `python -c "import secrets; print(secrets.token_urlsafe(32))"`. This is used to cryptographically sign the cookie used by the session.
 
-5. Run the app:
+5. Install dependencies and run:
    ```bash
+   uv sync
    uv run python main.py
    ```
 
 ## Email Setup (Resend)
 
-Magic login links are sent via [Resend](https://resend.com). To enable:
+Magic login links are sent via [Resend](https://resend.com).
+
+**Skip email setup:** If you just want to test locally, edit `send_login_email()` in `main.py` to print the URL instead:
+```python
+def send_login_email(to, token):
+    print(f"Login link for {to}: {BASE_URL}/login/{token}")
+```
+
+**To enable real emails:**
 
 1. Sign up at [resend.com](https://resend.com) and get your API key
 
@@ -64,7 +78,7 @@ Magic login links are sent via [Resend](https://resend.com). To enable:
 
 ## Deploy to Plash (`plash.env`)
 
-1. Add your Stripe **Secret key** (`sk_live_...`) to `plash.env`.
+1. Add your Stripe **Secret key** to `plash.env`.
 
 2. Create a webhook endpoint in [Stripe Dashboard → Webhooks](https://dashboard.stripe.com/webhooks):
    - Click **Add endpoint**
