@@ -111,3 +111,10 @@ def send_login_email(to, token):
 ## Test Payment
 
 Use test card: `4242 4242 4242 4242` with any future expiry and CVC.
+
+## Development
+
+Lint and format code:
+```bash
+./dev lint
+```
