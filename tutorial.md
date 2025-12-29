@@ -316,10 +316,15 @@ The `sess_id` (Stripe's checkout session ID) is the unique key that makes this s
 | ![Storefront](static/pic1.jpg) | ![Checkout](static/pic2.jpg) |
 |:------------------------------:|:----------------------------:|
 
-**3. Premium content unlocked** → **4. Storefront shows owned products** → **5. Future login via magic link**
+**3. Premium content unlocked** → **4. Storefront shows owned products**
 
-| ![Content](static/pic3.jpg) | ![Owner view](static/pic4.jpg) | ![Login](static/pic5.jpg) |
-|:---------------------------:|:------------------------------:|:-------------------------:|
+| ![Content](static/pic3.jpg) | ![Owner view](static/pic4.jpg) |
+|:---------------------------:|:------------------------------:|
+
+**5. Magic link email** → **6. Login page**
+
+| ![Email](static/pic6.jpg) | ![Login](static/pic5.jpg) |
+|:-------------------------:|:-------------------------:|
 
 ### Detailed Flow
 
