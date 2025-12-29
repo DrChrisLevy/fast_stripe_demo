@@ -50,10 +50,9 @@ Magic login links are sent via [Resend](https://resend.com). To enable:
 4. Add to `.env` (local dev):
    ```
    RESEND_API_KEY=re_xxxxx
-   EMAIL_FROM=login@yourdomain.com
+   EMAIL_FROM=onboarding@resend.dev
    ```
-
-**For local testing**: You can use Resend's test address `onboarding@resend.dev` which only delivers to your Resend account email.
+   Using `onboarding@resend.dev` means emails only deliver to your Resend account email (no spam to real users).
 
 ## Production (`plash.env`)
 
