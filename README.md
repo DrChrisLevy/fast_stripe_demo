@@ -12,6 +12,16 @@ A **passwordless e-commerce storefront** demo built with [FastHTML](https://fast
 3. User is auto-logged in and can access purchased content
 4. Future logins via magic link (no passwords)
 
+### Screenshots
+
+| Storefront (guest) | Stripe Checkout |
+|:------------------:|:---------------:|
+| ![Storefront](static/pic1.jpg) | ![Checkout](static/pic2.jpg) |
+
+| Premium content | Storefront (owner) | Magic link login |
+|:---------------:|:------------------:|:----------------:|
+| ![Content](static/pic3.jpg) | ![Owner view](static/pic4.jpg) | ![Login](static/pic5.jpg) |
+
 See [tutorial.md](tutorial.md) for a detailed code walkthrough.
 
 ## Environment Files
