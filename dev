@@ -6,7 +6,7 @@ case "$1" in
         uv run ruff format main.py
         ;;
     *)
-        echo "Usage: ./dh <command>"
+        echo "Usage: ./dev <command>"
         echo ""
         echo "Commands:"
         echo "  lint    Run ruff check --fix and format on main.py"
