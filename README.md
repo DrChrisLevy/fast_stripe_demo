@@ -52,7 +52,7 @@ Magic login links are sent via [Resend](https://resend.com). To enable:
    RESEND_API_KEY=re_xxxxx
    EMAIL_FROM=onboarding@resend.dev
    ```
-   Using `onboarding@resend.dev` means emails only deliver to your Resend account email (no spam to real users).
+   `onboarding@resend.dev` is a test FROM address so you can send emails before verifying your own domain. Emails still go to real recipients.
 
 ## Production (`plash.env`)
 
