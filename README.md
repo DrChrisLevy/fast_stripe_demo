@@ -96,6 +96,8 @@ def send_login_email(to, token):
    BASE_URL=https://yourdomain.com
    ```
 
+   **Important:** `BASE_URL` must match the domain in `.plash` (`PLASH_APP_NAME`). If using a custom domain, update both. Stripe redirects and magic login links use `BASE_URL`, so a mismatch will break the checkout flow. See [Plash docs](https://docs.pla.sh/how_to/add_custom_domain.html) for custom domain setup.
+
 ## Deployment (Plash)
 
 1. Export dependencies:
