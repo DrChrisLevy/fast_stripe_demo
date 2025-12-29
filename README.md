@@ -4,6 +4,8 @@ A **passwordless e-commerce storefront** demo built with [FastHTML](https://fast
 
 [FastStripe](https://github.com/AnswerDotAI/faststripe) is a Python library by [Answer.ai](https://answer.ai/) that simplifies Stripe integration. See their [blog post](https://www.answer.ai/posts/2025-07-23-faststripe.html) for details. For a minimal example, check out the [FastHTML e-commerce example](https://github.com/AnswerDotAI/fasthtml-example/tree/main/e_commerce).
 
+**Live demo:** [fast-stripe-demo.pla.sh](https://fast-stripe-demo.pla.sh/) (Stripe sandbox mode - no real charges. Use test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid email for the magic login link.)
+
 **How it works:**
 1. Guest clicks "Buy Now" → redirected to Stripe Checkout
 2. After payment, user record is created and a magic login link is emailed
