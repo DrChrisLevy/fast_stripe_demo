@@ -1,6 +1,6 @@
-# FastHTML + Stripe Integration Tutorial
+# FastHTML + FastStripe Integration Tutorial
 
-A guide to understanding this passwordless e-commerce application built with FastHTML, FastLite, and Stripe.
+A guide to understanding this passwordless e-commerce application built with FastHTML, FastLite, and FastStripe.
 
 ## Architecture Overview
 
