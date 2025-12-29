@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import resend
 
-load_dotenv("plash.env")
+load_dotenv(".env" if os.path.exists(".env") else "plash.env")
 
 # --- CONFIG & DATABASE ---
 DB_NAME = "data/data.db"
-BASE_URL = os.getenv("BASE_URL", "http://0.0.0.0:5001")
+BASE_URL = os.getenv("BASE_URL", "http://0.0.0.0:5001").rstrip("/")
 PRODUCTS = {
     "p1": {"name": "Product 1", "price": 1999, "desc": "Generic description for product 1"},
     "p2": {"name": "Product 2", "price": 2999, "desc": "Generic description for product 2"},

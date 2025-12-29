@@ -1,32 +1,34 @@
 # Fast Stripe Demo
 
-## Setup
+## Environment Files
+
+- **`.env`** — Local development (not committed to git)
+- **`plash.env`** — Production deployment on Plash (not committed to git)
+
+## Setup (Local Dev)
 
 1. Get your **Secret key** (`sk_test_...`) from [Stripe Dashboard → API keys](https://dashboard.stripe.com/test/apikeys)
    - Only need Secret key (server-side) — not Publishable key (that's for client-side JS)
 
-2. Add to `plash.env`:
-   ```
-   STRIPE_SECRET_KEY=sk_test_...
-   STRIPE_WEBHOOK_SECRET=whsec_...
-   ```
-
-3. [Install Stripe CLI](https://docs.stripe.com/stripe-cli/install) & login:
+2. [Install Stripe CLI](https://docs.stripe.com/stripe-cli/install) & login:
    ```bash
    brew install stripe/stripe-cli/stripe  # macOS
    stripe login
    ```
 
-4. Forward webhooks to localhost (keep running in separate terminal):
+3. Forward webhooks to localhost (keep running in separate terminal):
    ```bash
    stripe listen --forward-to localhost:5001/webhook
    ```
    CLI will output: `Ready! Your webhook signing secret is whsec_xxxxx`
-   
-   Copy that value to `plash.env`:
+
+4. Add to `.env`:
    ```
+   STRIPE_SECRET_KEY=sk_test_...
    STRIPE_WEBHOOK_SECRET=whsec_xxxxx
+   FAST_APP_SECRET=<random-string>
    ```
+   Generate `FAST_APP_SECRET` with: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
 5. Run the app:
    ```bash
@@ -45,13 +47,46 @@ Magic login links are sent via [Resend](https://resend.com). To enable:
    - Usually 2-3 TXT records for verification
    - Wait a few minutes, then click "Verify" in Resend
 
-4. Add to `plash.env`:
+4. Add to `.env` (local dev):
    ```
    RESEND_API_KEY=re_xxxxx
    EMAIL_FROM=login@yourdomain.com
    ```
 
 **For local testing**: You can use Resend's test address `onboarding@resend.dev` which only delivers to your Resend account email.
+
+## Production (`plash.env`)
+
+1. Get your **live Secret key** (`sk_live_...`) from [Stripe Dashboard → API keys](https://dashboard.stripe.com/apikeys)
+
+2. Create a webhook endpoint in [Stripe Dashboard → Webhooks](https://dashboard.stripe.com/webhooks):
+   - Click **Add endpoint**
+   - URL: `https://yourdomain.com/webhook`
+   - Select event: `checkout.session.completed`
+   - After creating, click the endpoint → **Reveal** signing secret to get `whsec_...`
+
+3. Add to `plash.env`:
+   ```
+   STRIPE_SECRET_KEY=sk_live_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   FAST_APP_SECRET=<random-string>
+   RESEND_API_KEY=re_xxxxx
+   EMAIL_FROM=login@yourdomain.com
+   BASE_URL=https://yourdomain.com
+   ```
+   Generate a different `FAST_APP_SECRET` for production.
+
+## Deployment (Plash)
+
+1. Export dependencies:
+   ```bash
+   uv export --no-hashes --no-dev -o requirements.txt
+   ```
+
+2. Deploy:
+   ```bash
+   uv run plash_deploy
+   ```
 
 ## Test Payment
 

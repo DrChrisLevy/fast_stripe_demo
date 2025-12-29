@@ -749,6 +749,22 @@ Use any future expiry date and any 3-digit CVC.
 
 ---
 
+## Deployment (Plash)
+
+To deploy your application to Plash:
+
+1. Export dependencies (Plash requires a `requirements.txt`):
+   ```bash
+   uv export --no-hashes --no-dev -o requirements.txt
+   ```
+
+2. Deploy:
+   ```bash
+   uv run plash_deploy
+   ```
+
+---
+
 ## Summary
 
 This application demonstrates a clean pattern for selling digital products:
