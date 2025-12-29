@@ -321,9 +321,9 @@ The `sess_id` (Stripe's checkout session ID) is the unique key that makes this s
 | ![Content](static/pic3.jpg) | ![Owner view](static/pic4.jpg) |
 |:---------------------------:|:------------------------------:|
 
-**5. Magic link email** → **6. Login page**
+**5. Login page** → **6. Magic link email received**
 
-| ![Email](static/pic6.jpg) | ![Login](static/pic5.jpg) |
+| ![Login](static/pic5.jpg) | ![Email](static/pic6.jpg) |
 |:-------------------------:|:-------------------------:|
 
 ### Detailed Flow

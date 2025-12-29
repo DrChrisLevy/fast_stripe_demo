@@ -22,9 +22,9 @@ A **passwordless e-commerce storefront** demo built with [FastHTML](https://fast
 |:---------------:|:------------------:|
 | ![Content](static/pic3.jpg) | ![Owner view](static/pic4.jpg) |
 
-| Magic link email | Login page |
-|:----------------:|:----------:|
-| ![Email](static/pic6.jpg) | ![Login](static/pic5.jpg) |
+| Login page | Magic link email |
+|:----------:|:----------------:|
+| ![Login](static/pic5.jpg) | ![Email](static/pic6.jpg) |
 
 See [tutorial.md](tutorial.md) for a detailed code walkthrough.
 
