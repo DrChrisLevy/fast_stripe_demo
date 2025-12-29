@@ -1,5 +1,14 @@
 # Fast Stripe Demo
 
+[FastStripe](https://github.com/AnswerDotAI/faststripe) is a Python library
+that offers several advantages over the official Stripe Python SDK. It was created
+by the team at [Answer.ai](https://answer.ai/). You can read a good blog post about
+it [here](https://www.answer.ai/posts/2025-07-23-faststripe.html).
+
+I created this repo so I could learn some basics about
+using FastStripe and how I could use it within a FastHTML app.
+
+
 ## Environment Files
 
 - **`.env`** — Local development (not committed to git)
