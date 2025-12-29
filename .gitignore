@@ -33,3 +33,5 @@ Thumbs.db
 /data
 
 
+.claude/
+.sesskey
